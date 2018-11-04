@@ -3,6 +3,7 @@ const { promisify } = require('util');
 const path = require('path');
 const { stat, createReadStream, readdir } = require('fs');
 const { readFileSync } = require('fs');
+const { Readable } = require('stream');
 
 // Packages
 const url = require('fast-url-parser');
@@ -15,6 +16,7 @@ const contentDisposition = require('content-disposition');
 const isPathInside = require('path-is-inside');
 const parseRange = require('range-parser');
 const Jsonnet = require('jsonnet');
+const intoStream = require('into-stream');
 
 // Other
 const directoryTemplate = require('./directory');
@@ -689,11 +691,10 @@ module.exports = async (request, response, config = {}, methods = {}) => {
 		if (absolutePath.search(/\.jsonnet$/) > -1) {
 			const jsonnet = new Jsonnet();
 			const content = readFileSync(absolutePath);
-			const result = jsonnet.eval(content);
-			const buf = Buffer.from(result.toString(), 'utf8');
+			const result = JSON.stringify(jsonnet.eval(content));
 			headers['Content-Type'] = `application/json`;
 			response.setHeader('Content-Type', 'application/json');
-			stream = await handlers.createReadStream(buf, streamOpts);
+			stream = intoStream(result);
 		} else {
 			stream = await handlers.createReadStream(absolutePath, streamOpts);
 		}
