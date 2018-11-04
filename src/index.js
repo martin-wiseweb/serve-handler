@@ -1,7 +1,9 @@
 // Native
-const {promisify} = require('util');
+const { promisify } = require('util');
 const path = require('path');
-const {stat, createReadStream, readdir} = require('fs');
+const { stat, createReadStream, readdir } = require('fs');
+const { readFileSync } = require('fs');
+const { Readable } = require('stream');
 
 // Packages
 const url = require('fast-url-parser');
@@ -13,6 +15,8 @@ const bytes = require('bytes');
 const contentDisposition = require('content-disposition');
 const isPathInside = require('path-is-inside');
 const parseRange = require('range-parser');
+const Jsonnet = require('jsonnet');
+const intoStream = require('into-stream');
 
 // Other
 const directoryTemplate = require('./directory');
@@ -55,15 +59,15 @@ const toTarget = (source, destination, previousPath) => {
 		return null;
 	}
 
-	const {keys, results} = matches;
+	const { keys, results } = matches;
 
 	const props = {};
-	const {protocol} = url.parse(destination);
+	const { protocol } = url.parse(destination);
 	const normalizedDest = protocol ? destination : slasher(destination);
 	const toPath = pathToRegExp.compile(normalizedDest);
 
 	for (let index = 0; index < keys.length; index++) {
-		const {name} = keys[index];
+		const { name } = keys[index];
 		props[name] = results[index + 1];
 	}
 
@@ -83,7 +87,7 @@ const applyRewrites = (requestPath, rewrites = [], repetitive) => {
 	}
 
 	for (let index = 0; index < rewritesCopy.length; index++) {
-		const {source, destination} = rewrites[index];
+		const { source, destination } = rewrites[index];
 		const target = toTarget(source, destination, requestPath);
 
 		if (target) {
@@ -100,7 +104,7 @@ const applyRewrites = (requestPath, rewrites = [], repetitive) => {
 
 const ensureSlashStart = target => (target.startsWith('/') ? target : `/${target}`);
 
-const shouldRedirect = (decodedPath, {redirects = [], trailingSlash}, cleanUrl) => {
+const shouldRedirect = (decodedPath, { redirects = [], trailingSlash }, cleanUrl) => {
 	const slashing = typeof trailingSlash === 'boolean';
 	const defaultType = 301;
 	const matchHTML = /(\.html|\/index)$/g;
@@ -121,7 +125,7 @@ const shouldRedirect = (decodedPath, {redirects = [], trailingSlash}, cleanUrl) 
 	}
 
 	if (slashing) {
-		const {ext, name} = path.parse(decodedPath);
+		const { ext, name } = path.parse(decodedPath);
 		const isTrailed = decodedPath.endsWith('/');
 		const isDotfile = name.startsWith('.');
 
@@ -155,7 +159,7 @@ const shouldRedirect = (decodedPath, {redirects = [], trailingSlash}, cleanUrl) 
 	// This is currently the fastest way to
 	// iterate over an array
 	for (let index = 0; index < redirects.length; index++) {
-		const {source, destination, type} = redirects[index];
+		const { source, destination, type } = redirects[index];
 		const target = toTarget(source, destination, decodedPath);
 
 		if (target) {
@@ -171,14 +175,14 @@ const shouldRedirect = (decodedPath, {redirects = [], trailingSlash}, cleanUrl) 
 
 const appendHeaders = (target, source) => {
 	for (let index = 0; index < source.length; index++) {
-		const {key, value} = source[index];
+		const { key, value } = source[index];
 		target[key] = value;
 	}
 };
 
 const getHeaders = async (customHeaders = [], current, absolutePath, stats) => {
 	const related = {};
-	const {base} = path.parse(absolutePath);
+	const { base } = path.parse(absolutePath);
 	const relativePath = path.relative(current, absolutePath);
 
 	if (customHeaders.length > 0) {
@@ -186,7 +190,7 @@ const getHeaders = async (customHeaders = [], current, absolutePath, stats) => {
 		// can specify multiple header sources in the config that
 		// might match a single path.
 		for (let index = 0; index < customHeaders.length; index++) {
-			const {source, headers} = customHeaders[index];
+			const { source, headers } = customHeaders[index];
 
 			if (sourceMatches(source, slasher(relativePath))) {
 				appendHeaders(related, headers);
@@ -297,9 +301,9 @@ const canBeListed = (excluded, file) => {
 };
 
 const renderDirectory = async (current, acceptsJSON, handlers, methods, config, paths) => {
-	const {directoryListing, trailingSlash, unlisted = [], renderSingle} = config;
+	const { directoryListing, trailingSlash, unlisted = [], renderSingle } = config;
 	const slashSuffix = typeof trailingSlash === 'boolean' ? (trailingSlash ? '/' : '') : '/';
-	const {relativePath, absolutePath} = paths;
+	const { relativePath, absolutePath } = paths;
 
 	const excluded = [
 		'.DS_Store',
@@ -434,11 +438,11 @@ const renderDirectory = async (current, acceptsJSON, handlers, methods, config, 
 
 	const output = acceptsJSON ? JSON.stringify(spec) : directoryTemplate(spec);
 
-	return {directory: output};
+	return { directory: output };
 };
 
 const sendError = async (absolutePath, response, acceptsJSON, current, handlers, config, spec) => {
-	const {err: original, message, code, statusCode} = spec;
+	const { err: original, message, code, statusCode } = spec;
 
 	/* istanbul ignore next */
 	if (original && process.env.NODE_ENV !== 'test') {
@@ -493,7 +497,7 @@ const sendError = async (absolutePath, response, acceptsJSON, current, handlers,
 	headers['Content-Type'] = 'text/html; charset=utf-8';
 
 	response.writeHead(statusCode, headers);
-	response.end(errorTemplate({statusCode, message}));
+	response.end(errorTemplate({ statusCode, message }));
 };
 
 const internalError = async (...args) => {
@@ -594,7 +598,7 @@ module.exports = async (request, response, config = {}, methods = {}) => {
 			const related = await findRelated(current, relativePath, rewrittenPath, handlers.stat);
 
 			if (related) {
-				({stats, absolutePath} = related);
+				({ stats, absolutePath } = related);
 			}
 		} catch (err) {
 			if (err.code !== 'ENOENT') {
@@ -624,9 +628,9 @@ module.exports = async (request, response, config = {}, methods = {}) => {
 			});
 
 			if (related.singleFile) {
-				({stats, absolutePath, singleFile} = related);
+				({ stats, absolutePath, singleFile } = related);
 			} else {
-				({directory} = related);
+				({ directory } = related);
 			}
 		} catch (err) {
 			if (err.code !== 'ENOENT') {
@@ -667,7 +671,7 @@ module.exports = async (request, response, config = {}, methods = {}) => {
 		const range = parseRange(stats.size, request.headers.range);
 
 		if (typeof range === 'object' && range.type === 'bytes') {
-			const {start, end} = range[0];
+			const { start, end } = range[0];
 			streamOpts.start = start;
 			streamOpts.end = end;
 
@@ -681,14 +685,23 @@ module.exports = async (request, response, config = {}, methods = {}) => {
 	// TODO ? multiple ranges
 
 	let stream = null;
+	const headers = await getHeaders(config.headers, current, absolutePath, stats);
 
 	try {
-		stream = await handlers.createReadStream(absolutePath, streamOpts);
+		if (absolutePath.search(/\.jsonnet$/) > -1) {
+			const jsonnet = new Jsonnet();
+			const content = readFileSync(absolutePath);
+			const result = JSON.stringify(jsonnet.eval(content));
+			headers['Content-Type'] = `application/json`;
+			response.setHeader('Content-Type', 'application/json');
+			stream = intoStream(result);
+		} else {
+			stream = await handlers.createReadStream(absolutePath, streamOpts);
+		}
 	} catch (err) {
 		return internalError(absolutePath, response, acceptsJSON, current, handlers, config, err);
 	}
 
-	const headers = await getHeaders(config.headers, current, absolutePath, stats);
 
 	// eslint-disable-next-line no-undefined
 	if (streamOpts.start !== undefined && streamOpts.end !== undefined) {
