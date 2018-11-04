@@ -2,6 +2,7 @@
 const { promisify } = require('util');
 const path = require('path');
 const { stat, createReadStream, readdir } = require('fs');
+const { readFileSync } = require('fs');
 
 // Packages
 const url = require('fast-url-parser');
@@ -13,6 +14,7 @@ const bytes = require('bytes');
 const contentDisposition = require('content-disposition');
 const isPathInside = require('path-is-inside');
 const parseRange = require('range-parser');
+const Jsonnet = require('jsonnet');
 
 // Other
 const directoryTemplate = require('./directory');
@@ -681,14 +683,24 @@ module.exports = async (request, response, config = {}, methods = {}) => {
 	// TODO ? multiple ranges
 
 	let stream = null;
+	const headers = await getHeaders(config.headers, current, absolutePath, stats);
 
 	try {
-		stream = await handlers.createReadStream(absolutePath, streamOpts);
+		if (absolutePath.search(/\.jsonnet$/) > -1) {
+			const jsonnet = new Jsonnet();
+			const content = readFileSync(absolutePath);
+			const result = jsonnet.eval(content);
+			const buf = Buffer.from(result.toString(), 'utf8');
+			headers['Content-Type'] = `application/json`;
+			response.setHeader('Content-Type', 'application/json');
+			stream = await handlers.createReadStream(buf, streamOpts);
+		} else {
+			stream = await handlers.createReadStream(absolutePath, streamOpts);
+		}
 	} catch (err) {
 		return internalError(absolutePath, response, acceptsJSON, current, handlers, config, err);
 	}
 
-	const headers = await getHeaders(config.headers, current, absolutePath, stats);
 
 	// eslint-disable-next-line no-undefined
 	if (streamOpts.start !== undefined && streamOpts.end !== undefined) {
